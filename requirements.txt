@@ -5,3 +5,9 @@ apscheduler==3.6.3
 matplotlib
 psycopg2-binary
 python-dotenv
+requests
+python-telegram-bot
+APScheduler
+elasticsearch
+es-logger
+flask
