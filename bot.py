@@ -1153,7 +1153,6 @@ def check_variation_alerts():
             cursor2.close()
             conn2.close()
 
-app = Flask(__name__)
 bot = Bot(token=TELEGRAM_TOKEN, request=TGRequest(con_pool_size=32))
 
 dispatcher = Dispatcher(bot=bot, update_queue=None, workers=4, use_context=True)
