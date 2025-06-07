@@ -1153,7 +1153,9 @@ dispatcher = Dispatcher(bot=bot, update_queue=None, workers=4, use_context=True)
 
 @app.route(f"/{TELEGRAM_TOKEN}", methods=["POST"])
 def webhook():
-    logger.info("¡Llamada recibida en webhook de Telegram!")
+    print("===> ¡LLEGA UN WEBHOOK DE TELEGRAM! <===")
+    import sys; sys.stdout.flush()
+    logger.info("===> ¡LLEGA UN WEBHOOK DE TELEGRAM! <===")
     update = Update.de_json(request.get_json(force=True), bot)
     dispatcher.process_update(update)
     return "OK"
