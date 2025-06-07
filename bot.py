@@ -24,7 +24,7 @@ print("ENTORNO:", dict(os.environ))
 TELEGRAM_TOKEN = os.getenv("TELEGRAM_TOKEN")
 DATABASE_URL = os.getenv("DATABASE_URL")
 ELASTICSEARCH_URL = os.getenv("ELASTICSEARCH_URL", "")
-APP_URL = os.getenv("RENDER_EXTERNAL_URL", "crypto-bot-ntrg.onrender.com")
+APP_URL = "crypto-bot-ntrg.onrender.com" 
 print(f"DEBUG: APP_URL = '{APP_URL}'")
 
 PORT = int(os.environ.get("PORT", 5000))
@@ -1169,8 +1169,7 @@ if __name__ == "__main__":
     scheduler.start()
 
     # Set webhook on Telegram side
-    APP_URL = APP_URL.replace("https://", "").replace("http://", "")
-    print(f"DEBUG: RENDER_EXTERNAL_URL = '{os.getenv('RENDER_EXTERNAL_URL')}'")
+  
     webhook_url = f"https://{APP_URL}/{TELEGRAM_TOKEN}"
     logger.info(f"Preparando webhook en → {webhook_url}")
     bot.set_webhook(webhook_url)
