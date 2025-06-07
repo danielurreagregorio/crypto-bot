@@ -15,6 +15,7 @@ from telegram.ext import Dispatcher, CommandHandler, CallbackContext
 from apscheduler.schedulers.background import BackgroundScheduler
 from elasticsearch import Elasticsearch
 from es_logger import ElasticsearchHandler
+import json
 
 # Load environment
 load_dotenv()
@@ -71,22 +72,55 @@ TOP_COINS = {
     "sol": "solana",
 }
 
+CACHE_FILE = "coin_list_cache.json"
+CACHE_TTL = timedelta(hours=24)
+
 def load_coin_mappings():
-    try:
+    """
+    Descarga y cachea coin list de CoinGecko.
+    Sólo hace la petición si el cache tiene más de 24h.
+    """
+    now = datetime.utcnow()
+
+    # 1) Si existe cache y es reciente, lo leemos
+    if os.path.exists(CACHE_FILE):
+        with open(CACHE_FILE, "r") as f:
+            data = json.load(f)
+        ts = datetime.fromisoformat(data.get("_cached_at"))
+        if now - ts < CACHE_TTL:
+            entries = data["coins"]
+        else:
+            entries = None
+    else:
+        entries = None
+
+    # 2) Si no tenemos entries o el cache está viejo, lo descargamos
+    if entries is None:
         resp = get(COIN_LIST_URL, timeout=10)
         resp.raise_for_status()
-        for entry in resp.json():
-            cid = entry["id"]
-            coin_symbol_to_id.setdefault(entry["symbol"].lower(), []).append(cid)
-            coin_name_to_id[entry["name"].lower()] = cid
-    except Exception as e:
-        logger.warning(f"No se pudo cargar CoinGecko: {e}")
-    # Force top coins
+        entries = resp.json()
+        # Escribimos cache (lista + timestamp)
+        cache_payload = {
+            "_cached_at": now.isoformat(),
+            "coins": entries
+        }
+        with open(CACHE_FILE, "w") as f:
+            json.dump(cache_payload, f)
+
+    # 3) Llenamos los diccionarios
+    coin_symbol_to_id.clear()
+    coin_name_to_id.clear()
+    for entry in entries:
+        cid  = entry["id"]
+        sym  = entry["symbol"].lower()
+        name = entry["name"].lower()
+        coin_symbol_to_id.setdefault(sym, []).append(cid)
+        coin_name_to_id[name] = cid
+
+    # 4) Forzar TOP_COINS si quieres
     for sym, cid in TOP_COINS.items():
         coin_symbol_to_id[sym] = [cid]
         coin_name_to_id[cid] = cid
-
-# Helpers for coin resolution and formatting
 
 def elegir_top_coin_por_symbol(symbol: str) -> str:
     ids = coin_symbol_to_id.get(symbol, [])
@@ -253,12 +287,6 @@ console_formatter = logging.Formatter("%(asctime)s %(levelname)s:%(name)s:%(mess
 console_handler.setFormatter(console_formatter)
 logger.addHandler(console_handler)
 
-es_client = Elasticsearch(
-    [es_host],
-    basic_auth=(es_user, es_pass)
-)
-es_handler = ElasticsearchHandler(es_client, index_prefix="telegram-bot-logs")
-logger.addHandler(es_handler)
 
 class BotLoggerAdapter(logging.LoggerAdapter):
     def process(self, msg, kwargs):
