@@ -1,0 +1,11 @@
+# Entorno virtual
+venv/
+# Bases de datos locales
+*.db
+# Logs
+logs/
+# Bytecode Python
+__pycache__/
+*.pyc
+# Configuración local sensible
+config.json
