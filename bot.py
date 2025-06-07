@@ -8,7 +8,21 @@ import psycopg2
 from psycopg2.extras import RealDictCursor
 from telegram import Bot
 
+# Lee la variable de entorno
+disable_es = os.getenv("DISABLE_ES", "false").lower() in ("1", "true", "yes")
 
+if not disable_es:
+    ES_URL = os.getenv("ELASTICSEARCH_URL")
+    if not ES_URL:
+        raise RuntimeError("ES no configurado: define ELASTICSEARCH_URL o activa DISABLE_ES")
+    es = Elasticsearch(
+        [ES_URL],
+        max_retries=3,
+        retry_on_timeout=True,
+        connection_pool_kw={'maxsize': 20}
+    )
+else:
+    es = None
 
 # Leer la URL de conexión
 DATABASE_URL = os.getenv("DATABASE_URL")
