@@ -19,6 +19,8 @@ import json
 
 # Load environment
 load_dotenv()
+import os
+print("ENTORNO:", dict(os.environ))
 TELEGRAM_TOKEN = os.getenv("TELEGRAM_TOKEN")
 DATABASE_URL = os.getenv("DATABASE_URL")
 ELASTICSEARCH_URL = os.getenv("ELASTICSEARCH_URL", "")
@@ -96,18 +98,19 @@ def load_coin_mappings():
     else:
         entries = None
 
-    # 2) Si no tenemos entries o el cache está viejo, lo descargamos
     if entries is None:
+        # Aquí sólo llamar a CoinGecko si no hay cache reciente
         resp = get(COIN_LIST_URL, timeout=10)
         resp.raise_for_status()
         entries = resp.json()
-        # Escribimos cache (lista + timestamp)
+        # Guardar en cache
         cache_payload = {
             "_cached_at": now.isoformat(),
             "coins": entries
         }
         with open(CACHE_FILE, "w") as f:
             json.dump(cache_payload, f)
+
 
     # 3) Llenamos los diccionarios
     coin_symbol_to_id.clear()
