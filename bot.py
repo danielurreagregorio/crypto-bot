@@ -7,11 +7,11 @@ import os
 import psycopg2
 from psycopg2.extras import RealDictCursor
 from telegram import Bot
-from telegram import Request
+from telegram.utils.request import Request
+
 import os
 import logging
-
-from telegram import Bot, Request            # <- Request importa aquí
+           # <- Request importa aquí
 from telegram.ext import Updater, CommandHandler
 from apscheduler.schedulers.background import BackgroundScheduler
 
