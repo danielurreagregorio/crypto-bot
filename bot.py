@@ -577,9 +577,24 @@ def main():
 
     scheduler.start()
 
-    # 6) Arrancar el bot
-    updater.start_polling()
-    log.info("Bot iniciado y escuchando comandos", extra={"extra": {}})
+    import os
+    PORT = int(os.environ.get("PORT", "10000"))
+    PUBLIC_URL = os.environ.get("PUBLIC_URL")
+    if not PUBLIC_URL:
+        raise RuntimeError("❌ Debes definir PUBLIC_URL como la URL de tu Web Service")
+
+    webhook_url = f"{PUBLIC_URL}/{TELEGRAM_TOKEN}"
+    # Le decimos a Telegram dónde enviar los updates
+    updater.bot.set_webhook(webhook_url)
+
+    # Arrancamos el servidor HTTP para recibir Webhooks
+    updater.start_webhook(
+        listen="0.0.0.0",       # Todas las interfaces
+        port=PORT,              # El puerto que Render expone
+        url_path=TELEGRAM_TOKEN # Path = token para seguridad
+    )
+
+    log.info(f"Webhook iniciado en {webhook_url}", extra={"extra": {}})
     updater.idle()
 
 
