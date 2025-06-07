@@ -4,6 +4,9 @@ import os
 import sys
 import logging
 from datetime import datetime, timedelta
+import time
+
+import requests
 from dotenv import load_dotenv
 from flask import Flask, request
 import psycopg2
@@ -100,8 +103,15 @@ def load_coin_mappings():
 
     if entries is None:
         # Aquí sólo llamar a CoinGecko si no hay cache reciente
-        resp = get(COIN_LIST_URL, timeout=10)
-        resp.raise_for_status()
+        try:
+            resp = get(COIN_LIST_URL, timeout=10)
+            resp.raise_for_status()
+        except requests.exceptions.HTTPError as e:
+            if resp.status_code == 429:
+                print("Rate limited by CoinGecko, waiting 60 seconds…")
+                time.sleep(60)
+                resp = get(COIN_LIST_URL, timeout=10)
+                resp.raise_for_status()
         entries = resp.json()
         # Guardar en cache
         cache_payload = {
