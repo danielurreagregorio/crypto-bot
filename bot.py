@@ -3,8 +3,15 @@
 import json
 import logging
 import time
-import sqlite3
+import os
+import psycopg2
+from psycopg2.extras import RealDictCursor
 
+
+# Leer la URL de conexión
+DATABASE_URL = os.getenv("DATABASE_URL")
+if not DATABASE_URL:
+    raise RuntimeError("❌ Debes definir DATABASE_URL en las variables de entorno")
 
 from requests import get
 
@@ -23,6 +30,11 @@ from datetime import datetime, timedelta
 
 
 from apscheduler.schedulers.background import BackgroundScheduler
+
+def get_conn():
+    # sslmode=require es recomendado para producción en Render
+    return psycopg2.connect(DATABASE_URL, sslmode="require")
+
 
 # ================================================
 #    0) MAPEAR SÍMBOLO/NOMBRE → coin_id (CoinGecko)
@@ -147,11 +159,11 @@ def format_price(price: float) -> str:
 # ------------------------------------------------------------
 DB_PATH = "alerts.db"
 def init_db():
-    conn = sqlite3.connect(DB_PATH)
-    cursor = conn.cursor()
+    conn = get_conn()
+    cur = conn.cursor()
 
     # —–> TABLA DE ALERTAS DE UMBRALES (existente)
-    cursor.execute("""
+    cur.execute("""
         CREATE TABLE IF NOT EXISTS price_alerts (
           id           INTEGER PRIMARY KEY AUTOINCREMENT,
           user_id      INTEGER NOT NULL,
@@ -166,7 +178,7 @@ def init_db():
     """)
 
     # —–> TABLA DE PREFERENCIAS (existente)
-    cursor.execute("""
+    cur.execute("""
         CREATE TABLE IF NOT EXISTS user_prefs (
           user_id  INTEGER PRIMARY KEY,
           currency TEXT    NOT NULL
@@ -174,7 +186,7 @@ def init_db():
     """)
 
     # —–> TABLA DE PORTAFOLIO (existente)
-    cursor.execute("""
+    cur.execute("""
         CREATE TABLE IF NOT EXISTS portfolio (
           id            INTEGER PRIMARY KEY AUTOINCREMENT,
           user_id       INTEGER NOT NULL,
@@ -186,7 +198,7 @@ def init_db():
     """)
 
     # —–> NUEVA TABLA PARA ALERTAS DE VARIACIÓN PORCENTUAL
-    cursor.execute("""
+    cur.execute("""
         CREATE TABLE IF NOT EXISTS variation_alerts (
           id            INTEGER PRIMARY KEY AUTOINCREMENT,
           user_id       INTEGER NOT NULL,
@@ -198,7 +210,7 @@ def init_db():
           UNIQUE(user_id, crypto_id)               -- Evita duplicados para cada par
         )
     """)
-    cursor.execute("""
+    cur.execute("""
         CREATE TABLE IF NOT EXISTS portfolio_variation_alerts (
           id            INTEGER PRIMARY KEY AUTOINCREMENT,
           user_id       INTEGER NOT NULL UNIQUE,   -- una alerta activa por usuario
@@ -209,21 +221,23 @@ def init_db():
         )
     """)
     conn.commit()
+    cur.close()
     conn.close()
 
 
 def add_alert(user_id: int, crypto_id: str, condition: str, threshold: float):
-    conn = sqlite3.connect(DB_PATH)
+    conn = get_conn()
     cursor = conn.cursor()
     cursor.execute("""
         INSERT INTO price_alerts (user_id, crypto_id, condition, threshold, active, created_at)
         VALUES (?, ?, ?, ?, 1, ?)
-    """, (user_id, crypto_id, condition, threshold, datetime.utcnow().isoformat()))
+    """, (user_id, crypto_id, condition, threshold, datetime.utcnow()))
     conn.commit()
+    cursor.close()
     conn.close()
 
 def list_alerts(user_id: int):
-    conn = sqlite3.connect(DB_PATH)
+    conn = get_conn()
     cursor = conn.cursor()
     cursor.execute("""
         SELECT id, crypto_id, condition, threshold, created_at
@@ -231,18 +245,20 @@ def list_alerts(user_id: int):
         WHERE user_id = ? AND active = 1
     """, (user_id,))
     rows = cursor.fetchall()
+    cursor.close()
     conn.close()
     return rows
 
 def deactivate_alert(alert_id: int):
-    conn = sqlite3.connect(DB_PATH)
+    conn = get_conn()
     cursor = conn.cursor()
     cursor.execute("UPDATE price_alerts SET active = 0 WHERE id = ?", (alert_id,))
     conn.commit()
+    cursor.close()
     conn.close()
 
 def set_currency(user_id: int, currency: str):
-    conn = sqlite3.connect(DB_PATH)
+    conn = get_conn()
     cursor = conn.cursor()
     cursor.execute("""
         INSERT INTO user_prefs (user_id, currency)
@@ -250,13 +266,15 @@ def set_currency(user_id: int, currency: str):
         ON CONFLICT(user_id) DO UPDATE SET currency = excluded.currency
     """, (user_id, currency.lower()))
     conn.commit()
+    cursor.close()
     conn.close()
 
 def get_currency(user_id: int) -> str:
-    conn = sqlite3.connect(DB_PATH)
+    conn = get_conn()
     cursor = conn.cursor()
     cursor.execute("SELECT currency FROM user_prefs WHERE user_id = ?", (user_id,))
     row = cursor.fetchone()
+    cursor.close()
     conn.close()
     return row[0] if row else "usd"
 
@@ -562,14 +580,15 @@ def main():
 # 5) JOB DE CHEQUEO PERIÓDICO DE ALERTAS
 # ------------------------------------------------------------
 def check_price_alerts():
-    conn = sqlite3.connect(DB_PATH)
-    cursor = conn.cursor()
+    conn = get_conn()
+    cursor = conn.cursor()  
     cursor.execute("""
         SELECT id, user_id, crypto_id, condition, threshold
         FROM price_alerts
         WHERE active = 1
     """)
     alerts = cursor.fetchall()
+    cursor.close()
     conn.close()
 
     for alert_id, user_id, crypto_id, condition, threshold in alerts:
@@ -618,27 +637,29 @@ def check_price_alerts():
 #  Funciones de BD para portafolio
 # -----------------------------
 def portfolio_add(user_id: int, crypto_id: str, cantidad: float, precio_compra: float):
-    conn = sqlite3.connect(DB_PATH)
+    conn = get_conn()
     cursor = conn.cursor()
     cursor.execute("""
         INSERT INTO portfolio (user_id, crypto_id, cantidad, precio_compra, fecha)
         VALUES (?, ?, ?, ?, ?)
-    """, (user_id, crypto_id, cantidad, precio_compra, datetime.utcnow().isoformat()))
+    """, (user_id, crypto_id, cantidad, precio_compra, datetime.utcnow()))
     conn.commit()
+    cursor.close()
     conn.close()
 
 def portfolio_remove(user_id: int, crypto_id: str):
-    conn = sqlite3.connect(DB_PATH)
+    conn = get_conn()
     cursor = conn.cursor()
     cursor.execute("""
         DELETE FROM portfolio
         WHERE user_id = ? AND crypto_id = ?
     """, (user_id, crypto_id))
     conn.commit()
+    cursor.close()
     conn.close()
 
 def portfolio_get_all(user_id: int):
-    conn = sqlite3.connect(DB_PATH)
+    conn = get_conn()
     cursor = conn.cursor()
     cursor.execute("""
         SELECT crypto_id, cantidad, precio_compra, fecha
@@ -646,6 +667,7 @@ def portfolio_get_all(user_id: int):
         WHERE user_id = ?
     """, (user_id,))
     rows = cursor.fetchall()
+    cursor.close()
     conn.close()
     return rows
 def register_variation_alert(user_id: int, crypto_id: str, base_price: float):
@@ -653,7 +675,7 @@ def register_variation_alert(user_id: int, crypto_id: str, base_price: float):
     Inserta en variation_alerts una fila (user_id, crypto_id, base_price, porcentaje=5.0)
     *solo si* no existe ya una alerta activa para ese par. Por defecto se fija porcentaje=5.0.
     """
-    conn = sqlite3.connect(DB_PATH)
+    conn = get_conn()
     cursor = conn.cursor()
 
     # Verificar si ya existe una alerta activa para ese user_id y crypto_id
@@ -669,7 +691,7 @@ def register_variation_alert(user_id: int, crypto_id: str, base_price: float):
         return
 
     # Si no existe, insertamos una nueva con porcentaje=5.0 y active=1
-    creado = datetime.utcnow().isoformat()
+    creado = datetime.utcnow()
     cursor.execute("""
         INSERT OR REPLACE INTO variation_alerts
         (user_id, crypto_id, base_price, porcentaje, active, created_at)
@@ -677,6 +699,7 @@ def register_variation_alert(user_id: int, crypto_id: str, base_price: float):
     """, (user_id, crypto_id, base_price, 5.0, creado))
 
     conn.commit()
+    cursor.close()
     conn.close()
 
 
@@ -958,7 +981,7 @@ def check_portfolio_variation_alerts():
       - Si la variación ≥ 10 %, envía mensaje URGENTE y desactiva.
       - Si la variación ≥ 5 % (pero < 10 %), envía mensaje estándar y desactiva.
     """
-    conn = sqlite3.connect(DB_PATH)
+    conn = get_conn()
     cursor = conn.cursor()
     cursor.execute("""
         SELECT id, user_id, base_value, porcentaje
@@ -966,6 +989,7 @@ def check_portfolio_variation_alerts():
         WHERE active = 1
     """)
     filas = cursor.fetchall()
+    cursor.close()
     conn.close()
 
     for alert_id, user_id, base_value, porcentaje in filas:
@@ -1009,14 +1033,15 @@ def check_portfolio_variation_alerts():
             pass
 
         # Desactivar la alerta (un solo disparo)
-        conn2 = sqlite3.connect(DB_PATH)
-        cursor2 = conn2.cursor()
+        conn2 = get_conn()
+        cursor2 = conn.cursor()
         cursor2.execute("""
             UPDATE portfolio_variation_alerts
             SET active = 0
             WHERE id = ?
         """, (alert_id,))
         conn2.commit()
+        cursor2.close()
         conn2.close()
 
 
@@ -1063,8 +1088,8 @@ def register_portfolio_variation_alert(user_id: int):
     if base_value <= 0:
         return  # Si no tiene portafolio o valor 0, no registramos
 
-    ahora = datetime.utcnow().isoformat()
-    conn = sqlite3.connect(DB_PATH)
+    ahora = datetime.utcnow()
+    conn = get_conn()
     cursor = conn.cursor()
 
     # Insertar o actualizar (sobrescribir) la fila de ese user_id
@@ -1079,6 +1104,7 @@ def register_portfolio_variation_alert(user_id: int):
               created_at = excluded.created_at
     """, (user_id, base_value, 5.0, ahora))
     conn.commit()
+    cursor.close()
     conn.close()
 
 
@@ -1090,7 +1116,7 @@ def check_variation_alerts():
         cambio_pct = abs((precio_actual - base_price) / base_price * 100)
     Si cambio_pct >= porcentaje (5.0), envía notificación al usuario y marca la alerta como inactiva.
     """
-    conn = sqlite3.connect(DB_PATH)
+    conn = get_conn()
     cursor = conn.cursor()
     # Seleccionamos solo las alertas activas
     cursor.execute("""
@@ -1099,6 +1125,7 @@ def check_variation_alerts():
         WHERE active = 1
     """)
     filas = cursor.fetchall()
+    cursor.close()
     conn.close()
 
     for alert_id, user_id, crypto_id, base_price, porcentaje in filas:
@@ -1144,14 +1171,15 @@ def check_variation_alerts():
                 pass
 
             # 5) Desactivar la alerta en la BD
-            conn2 = sqlite3.connect(DB_PATH)
-            cursor2 = conn2.cursor()
+            conn2 = get_conn()
+            cursor2 = conn.cursor()
             cursor2.execute("""
                 UPDATE variation_alerts
                 SET active = 0
                 WHERE id = ?
             """, (alert_id,))
             conn2.commit()
+            cursor2.close()
             conn2.close()
 
 if __name__ == "__main__":

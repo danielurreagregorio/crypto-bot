@@ -3,3 +3,4 @@ requests==2.31.0
 elasticsearch==8.10.1
 apscheduler==3.6.3
 matplotlib
+psycopg2-binary
