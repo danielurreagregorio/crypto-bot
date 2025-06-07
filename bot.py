@@ -568,30 +568,30 @@ def config_divisa(update: Update, context: CallbackContext) -> None:
 # 4) FUNCIÓN PRINCIPAL main()
 # ------------------------------------------------------------
 def main():
-    # 1) Cargar mapeos de criptomonedas
-    load_coin_mappings()
+    # ---- 0) Logging y token ----
+    logging.basicConfig(level=logging.INFO)
+    log = logging.getLogger(__name__)
+    TELEGRAM_TOKEN = os.getenv("TELEGRAM_TOKEN")
 
-    # 2) Inicializar base de datos (crea variation_alerts)
+    # ---- 1) Cargar mapeos y DB ----
+    load_coin_mappings()
     init_db()
 
-        # 0) Instancia directa de Bot para ejecutar sólo delete/get_webhook_info
-    bot = Bot(token=TELEGRAM_TOKEN)
+    # ---- 2) Instancia el Bot y limpia webhook ----
+    # Evita warnings de pool en Telegram
+    request = Request(con_pool_size=32)
+    bot = Bot(token=TELEGRAM_TOKEN, request=request)
 
-    # 0.1) Consulta estado actual
     info = bot.get_webhook_info()
-    logging.info(f"Webhook antes de borrar: {info}")
+    log.info(f"Webhook antes de borrar: url={info.url!r}")
+    bot.delete_webhook(drop_pending_updates=True)
+    log.info("Webhook eliminado. Pasamos a polling.")
 
-    # 0.2) Elimínalo de verdad
-    removed = bot.delete_webhook(drop_pending_updates=True)
-    logging.info(f"Webhook borrado correctamente: {removed}")
-
-    # — ahora sigues con tu Updater —
+    # ---- 3) Crea el Updater usando ese mismo Bot ----
     updater = Updater(bot=bot, use_context=True)
     dp = updater.dispatcher
 
-
-
-    # 4) Registrar handlers
+    # ---- 4) Registra tus handlers ----
     dp.add_handler(CommandHandler("start", start))
     dp.add_handler(CommandHandler("help", help_handler))
     dp.add_handler(CommandHandler("precio", precio))
@@ -601,33 +601,16 @@ def main():
     dp.add_handler(CommandHandler("config_divisa", config_divisa))
     dp.add_handler(CommandHandler("portafolio", portafolio_handler))
 
-    # 5) Iniciar scheduler
+    # ---- 5) Arranca el scheduler ----
     scheduler = BackgroundScheduler(timezone="UTC")
-
-    # (ya existía para price_alerts cada 5 min)
     scheduler.add_job(check_price_alerts, "interval", minutes=5)
-
-    # —–> NUEVO: chequeo de variation_alerts cada 5 minutos
     scheduler.add_job(check_variation_alerts, "interval", minutes=5)
     scheduler.add_job(check_portfolio_variation_alerts, "interval", minutes=5)
-
     scheduler.start()
 
-    # 4) Arranca polling (long‐polling)
-    logging.basicConfig(level=logging.INFO)
-    log = logging.getLogger(__name__)
-
-    log.info("Arrancando comprobación de webhook…")
-    info = bot.get_webhook_info()
-    log.info(f"get_webhook_info(): {info.url}, pending={info.has_custom_certificate}")
-
-    log.info("Borrando webhook…")
-    bot.delete_webhook(drop_pending_updates=True)
-
-    log.info("Inicializo Updater y start_polling()")
+    # ---- 6) Inicia polling ----
     updater.start_polling()
-
-    log.info("Bot iniciado en modo polling (webhook eliminado)", extra={"extra": {}})
+    log.info("Bot iniciado en modo polling (webhook eliminado)")
     updater.idle()
 
 
