@@ -1,263 +1,176 @@
 # bot.py
 
-import json
-import logging
-import time
 import os
+import sys
+import logging
+from datetime import datetime, timedelta
+from dotenv import load_dotenv
+from flask import Flask, request
 import psycopg2
 from psycopg2.extras import RealDictCursor
-from telegram import Bot
-from telegram.utils.request import Request
-
-import os
-import logging
-           # <- Request importa aquí
-from telegram.ext import Updater, CommandHandler
-from apscheduler.schedulers.background import BackgroundScheduler
-
-
-import os
-from elasticsearch import Elasticsearch
-
-# Lee la variable de entorno
-disable_es = os.getenv("DISABLE_ES", "false").lower() in ("1", "true", "yes")
-
-if disable_es:
-    es = None
-    print("Elasticsearch desactivado (DISABLE_ES=true)")
-else:
-    ES_URL = os.getenv("ELASTICSEARCH_URL")
-    if not ES_URL:
-        # En lugar de RuntimeError, mejor caer en modo sin ES
-        es = None
-        print("No hay ES_URL configurada; Elasticsearch desactivado")
-    else:
-        es = Elasticsearch(
-            [ES_URL],
-            max_retries=3,
-            retry_on_timeout=True,
-            connection_pool_kw={'maxsize': 20}
-        )
-        print(f"Conectado a Elasticsearch en {ES_URL}")
-
-
-# Leer la URL de conexión
-DATABASE_URL = os.getenv("DATABASE_URL")
-if not DATABASE_URL:
-    raise RuntimeError("❌ Debes definir DATABASE_URL en las variables de entorno")
-
 from requests import get
-
-from telegram import Update, ParseMode
-from telegram.ext import Updater, CommandHandler, CallbackContext
-
+from telegram import Bot, Update, ParseMode
+from telegram.utils.request import Request as TGRequest
+from telegram.ext import Dispatcher, CommandHandler, CallbackContext
+from apscheduler.schedulers.background import BackgroundScheduler
 from elasticsearch import Elasticsearch
 from es_logger import ElasticsearchHandler
 
-import os
-import matplotlib
-matplotlib.use("Agg")
-import matplotlib.pyplot as plt
-from datetime import datetime, timedelta
+# Load environment
+load_dotenv()
+TELEGRAM_TOKEN = os.getenv("TELEGRAM_TOKEN")
+DATABASE_URL = os.getenv("DATABASE_URL")
+ELASTICSEARCH_URL = os.getenv("ELASTICSEARCH_URL", "")
+APP_URL = os.getenv("PUBLIC_URL")  # Provided by Render
+PORT = int(os.environ.get("PORT", 5000))
+
+if not TELEGRAM_TOKEN:
+    print("❌ ERROR: TELEGRAM_TOKEN no encontrado en el entorno.", file=sys.stderr)
+    sys.exit(1)
+if not DATABASE_URL:
+    print("❌ ERROR: DATABASE_URL no encontrado en el entorno.", file=sys.stderr)
+    sys.exit(1)
 
 
+# Configure logging
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger("crypto_bot")
+console_handler = logging.StreamHandler()
+console_formatter = logging.Formatter("%(asctime)s %(levelname)s:%(name)s:%(message)s")
+console_handler.setFormatter(console_formatter)
+logger.addHandler(console_handler)
 
-from apscheduler.schedulers.background import BackgroundScheduler
+# Elasticsearch (optional)
+es = None
+if ELASTICSEARCH_URL:
+    es_client = Elasticsearch([ELASTICSEARCH_URL], max_retries=3, retry_on_timeout=True)
+    es_handler = ElasticsearchHandler(es_client, index_prefix="telegram-bot-logs")
+    logger.addHandler(es_handler)
+    es = es_client
+    logger.info(f"Conectado a Elasticsearch en {ELASTICSEARCH_URL}")
+else:
+    logger.info("Elasticsearch desactivado: no se configuró ELASTICSEARCH_URL")
 
+# Database connection
 def get_conn():
-    # sslmode=require es recomendado para producción en Render
     return psycopg2.connect(DATABASE_URL, sslmode="require")
 
-
 # ================================================
-#    0) MAPEAR SÍMBOLO/NOMBRE → coin_id (CoinGecko)
-# ================================================
+# CoinGecko mappings
 COIN_LIST_URL = "https://api.coingecko.com/api/v3/coins/list"
 coin_symbol_to_id = {}
 coin_name_to_id = {}
-
-def load_coin_mappings():
-    """
-    Descarga el listado de criptos de CoinGecko y llena dos diccionarios:
-    - coin_symbol_to_id: símbolo (p.ej. 'btc') → 'bitcoin'
-    - coin_name_to_id: nombre (p.ej. 'bitcoin') → 'bitcoin'
-    """
-    try:
-        resp = get(COIN_LIST_URL, timeout=10)
-        resp.raise_for_status()
-        data = resp.json()
-        for entry in data:
-            cid = entry["id"]           # ej. "bitcoin"
-            sym = entry["symbol"].lower()  # ej. "btc"
-            name = entry["name"].lower()   # ej. "bitcoin"
-            coin_symbol_to_id[sym] = cid
-            coin_name_to_id[name] = cid
-    except Exception as e:
-        print("⚠️ No se pudo cargar el listado de criptos de CoinGecko:", e)
-
-
-
 TOP_COINS = {
-    "btc":   "bitcoin",
-    "eth":   "ethereum",
-    "doge":  "dogecoin",
-    "xrp":   "ripple",
-    "ada":   "cardano",
-    "bnb":   "binancecoin",
+    "btc": "bitcoin",
+    "eth": "ethereum",
+    "doge": "dogecoin",
+    "xrp": "ripple",
+    "ada": "cardano",
+    "bnb": "binancecoin",
     "matic": "matic-network",
-    "sol":   "solana",
-    # etc…
+    "sol": "solana",
 }
 
 def load_coin_mappings():
     try:
         resp = get(COIN_LIST_URL, timeout=10)
         resp.raise_for_status()
-        data = resp.json()
-        for entry in data:
-            cid  = entry["id"]
-            sym  = entry["symbol"].lower()
-            name = entry["name"].lower()
-
-            coin_name_to_id[name] = cid
-            coin_symbol_to_id.setdefault(sym, []).append(cid)
+        for entry in resp.json():
+            cid = entry["id"]
+            coin_symbol_to_id.setdefault(entry["symbol"].lower(), []).append(cid)
+            coin_name_to_id[entry["name"].lower()] = cid
     except Exception as e:
-        print("⚠️ No se pudo cargar listado de CoinGecko:", e)
-
-    # Si deseas que TOP_COINS siempre prevalezca, puedes forzarlo (opcional):
+        logger.warning(f"No se pudo cargar CoinGecko: {e}")
+    # Force top coins
     for sym, cid in TOP_COINS.items():
-        coin_symbol_to_id[sym]    = [cid]
-        coin_name_to_id[cid.lower()] = cid
+        coin_symbol_to_id[sym] = [cid]
+        coin_name_to_id[cid] = cid
+
+# Helpers for coin resolution and formatting
 
 def elegir_top_coin_por_symbol(symbol: str) -> str:
-    lista_ids = coin_symbol_to_id.get(symbol, [])
-    if not lista_ids:
-        return None
-    if len(lista_ids) == 1:
-        return lista_ids[0]
+    ids = coin_symbol_to_id.get(symbol, [])
+    if len(ids) == 1:
+        return ids[0]
+    url = (f"https://api.coingecko.com/api/v3/coins/markets?vs_currency=usd&ids={','.join(ids)}&"  
+           f"order=market_cap_desc&per_page={len(ids)}")
+    try:
+        data = get(url, timeout=10).json()
+        return data[0]["id"] if data else ids[0]
+    except:
+        return ids[0]
 
-    # Llamada a /coins/markets para decidir por market cap
-    ids_param = ",".join(lista_ids)
-    url = (
-        f"https://api.coingecko.com/api/v3/coins/markets?"
-        f"vs_currency=usd&ids={ids_param}&order=market_cap_desc&per_page={len(lista_ids)}"
-    )
-    resp = get(url)
-    if resp.status_code != 200:
-        return lista_ids[0]
-    data = resp.json()
-    if not data:
-        return lista_ids[0]
-    return data[0]["id"]
 
 def resolve_coin(user_input: str) -> str:
     key = user_input.strip().lower()
-
-    # 1) Si está en TOP_COINS, devolvemos inmediatamente ese coin_id
     if key in TOP_COINS:
         return TOP_COINS[key]
-
-    # 2) Si coincide con un nombre (sinónimos) → devolvemos el coin_id
     if key in coin_name_to_id:
         return coin_name_to_id[key]
-
-    # 3) Si coincide con un símbolo que no colisiona (lista de largo 1) → devolvemos el único
-    if key in coin_symbol_to_id and len(coin_symbol_to_id[key]) == 1:
-        return coin_symbol_to_id[key][0]
-
-    # 4) Si coincide con un símbolo colisionante → elegimos por market cap
-    if key in coin_symbol_to_id and len(coin_symbol_to_id[key]) > 1:
+    if key in coin_symbol_to_id:
         return elegir_top_coin_por_symbol(key)
-
-    # 5) Si no coincide con nada → None
     return None
 
 
-
 def format_price(price: float) -> str:
-    """
-    Si price < 1: usa 8 decimales (ej. 0.07654321).
-    Si 1 <= price < 1000: usa 4 decimales (ej. 12.3456).
-    De lo contrario, usa 2 decimales.
-    """
     if price < 1:
         return f"{price:.8f}"
     if price < 1000:
         return f"{price:.4f}"
     return f"{price:.2f}"
 
+# ================================================
+# Database initialization
 
-# ------------------------------------------------------------
-# 1) BD para alertas + preferencias de divisa
-# ------------------------------------------------------------
-DB_PATH = "alerts.db"
 def init_db():
     conn = get_conn()
     cur = conn.cursor()
-
-    # Alertas de precio
     cur.execute("""
     CREATE TABLE IF NOT EXISTS price_alerts (
-      id           SERIAL PRIMARY KEY,
-      user_id      BIGINT    NOT NULL,
-      crypto_id    TEXT      NOT NULL,
-      condition    TEXT      NOT NULL,
-      threshold    DOUBLE PRECISION NOT NULL,
-      active       BOOLEAN   NOT NULL DEFAULT TRUE,
-      created_at   TIMESTAMPTZ NOT NULL
-    )
-    """)
-
-    # Preferencias de divisa
+      id SERIAL PRIMARY KEY,
+      user_id BIGINT NOT NULL,
+      crypto_id TEXT NOT NULL,
+      condition TEXT NOT NULL,
+      threshold DOUBLE PRECISION NOT NULL,
+      active BOOLEAN NOT NULL DEFAULT TRUE,
+      created_at TIMESTAMPTZ NOT NULL
+    )""")
     cur.execute("""
     CREATE TABLE IF NOT EXISTS user_prefs (
-      user_id  BIGINT PRIMARY KEY,
-      currency TEXT   NOT NULL
-    )
-    """)
-
-    # Portfolio
+      user_id BIGINT PRIMARY KEY,
+      currency TEXT NOT NULL
+    )""")
     cur.execute("""
     CREATE TABLE IF NOT EXISTS portfolio (
-      id            SERIAL PRIMARY KEY,
-      user_id       BIGINT NOT NULL,
-      crypto_id     TEXT   NOT NULL,
-      cantidad      DOUBLE PRECISION NOT NULL,
+      id SERIAL PRIMARY KEY,
+      user_id BIGINT NOT NULL,
+      crypto_id TEXT NOT NULL,
+      cantidad DOUBLE PRECISION NOT NULL,
       precio_compra DOUBLE PRECISION NOT NULL,
-      fecha         TIMESTAMPTZ NOT NULL
-    )
-    """)
-
-    # Alertas de variación por cripto
+      fecha TIMESTAMPTZ NOT NULL
+    )""")
     cur.execute("""
     CREATE TABLE IF NOT EXISTS variation_alerts (
-      id           SERIAL PRIMARY KEY,
-      user_id      BIGINT NOT NULL,
-      crypto_id    TEXT   NOT NULL,
-      base_price   DOUBLE PRECISION NOT NULL,
-      porcentaje   DOUBLE PRECISION NOT NULL,
-      active       BOOLEAN NOT NULL DEFAULT TRUE,
-      created_at   TIMESTAMPTZ NOT NULL
-    )
-    """)
-
-    # Alertas de variación del portafolio
+      id SERIAL PRIMARY KEY,
+      user_id BIGINT NOT NULL,
+      crypto_id TEXT NOT NULL,
+      base_price DOUBLE PRECISION NOT NULL,
+      porcentaje DOUBLE PRECISION NOT NULL,
+      active BOOLEAN NOT NULL DEFAULT TRUE,
+      created_at TIMESTAMPTZ NOT NULL
+    )""")
     cur.execute("""
     CREATE TABLE IF NOT EXISTS portfolio_variation_alerts (
-      id            SERIAL PRIMARY KEY,
-      user_id       BIGINT UNIQUE NOT NULL,
-      base_value    DOUBLE PRECISION NOT NULL,
-      porcentaje    DOUBLE PRECISION NOT NULL,
-      active        BOOLEAN NOT NULL DEFAULT TRUE,
-      created_at    TIMESTAMPTZ NOT NULL
-    )
-    """)
-
+      id SERIAL PRIMARY KEY,
+      user_id BIGINT UNIQUE NOT NULL,
+      base_value DOUBLE PRECISION NOT NULL,
+      porcentaje DOUBLE PRECISION NOT NULL,
+      active BOOLEAN NOT NULL DEFAULT TRUE,
+      created_at TIMESTAMPTZ NOT NULL
+    )""")
     conn.commit()
     cur.close()
     conn.close()
-
-
 
 def add_alert(user_id: int, crypto_id: str, condition: str, threshold: float):
     conn = get_conn()
@@ -324,9 +237,6 @@ def get_currency(user_id: int) -> str:
 # 2) CARGAR TOKEN y CONFIGURAR LOGGERS
 # ------------------------------------------------------------
 
-TELEGRAM_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
-if not TELEGRAM_TOKEN:
-    raise RuntimeError("❌ Debes definir la variable de entorno TELEGRAM_BOT_TOKEN")
 
 # Elasticsearch (opcional)
 es_host = os.getenv("ELASTICSEARCH_HOST", "http://localhost:9200")
@@ -365,18 +275,26 @@ log = BotLoggerAdapter(logger, {"bot_name": "crypto_price_bot"})
 # 3) HANDLERS DE TELEGRAM (ESPAÑOL)
 # ------------------------------------------------------------
 def start(update: Update, context: CallbackContext) -> None:
-    chat_id = update.effective_chat.id
-    usuario = update.effective_user.username or update.effective_user.first_name
-
+    user = update.effective_user.first_name or update.effective_user.username
     texto = (
-        f"👋 ¡Hola, *{usuario}*! Soy tu CryptoPriceBot 🇪🇸.\n\n"
-        "*Funciones principales:*\n"
-        "• Consultar precio → `/help precio`\n"
-        "• Añadir o gestionar avisos → `/help avisos`\n"
-        "• Gestionar tu portafolio → `/help portafolio`\n\n"
+        f"👋 ¡Hola, *{user}*! Soy tu CryptoPriceBot.\n\n"
+        "/precio <cripto>  — Consultar precio\n"
+        "/alerta_crear  — Crear alerta de precio\n"
+        "/alerta_listar — Listar alertas activas\n"
+        "/config_divisa — Cambiar divisa predeterminada\n"
+        "/portafolio     — Gestionar portafolio"
     )
-    context.bot.send_message(chat_id=chat_id, text=texto, parse_mode=ParseMode.MARKDOWN)
-    log.info("Ejecutado /start", extra={"extra": {"command": "/start", "chat_id": chat_id}})
+    update.effective_chat.send_message(text=texto, parse_mode=ParseMode.MARKDOWN)
+
+# Define precio, alerta_crear, alerta_listar, alerta_borrar, config_divisa,
+# portafolio_handler, help_handler, check_price_alerts, check_variation_alerts,
+# check_portfolio_variation_alerts, get_portfolio_total_value, etc.,
+# following la lógica original, pero referenciando solo las funciones CRUD definidas.
+
+# ================================================
+# Application setup
+
+
 
 def precio(update: Update, context: CallbackContext) -> None:
     chat_id = update.effective_chat.id
@@ -569,58 +487,6 @@ def config_divisa(update: Update, context: CallbackContext) -> None:
             "chat_id": chat_id
         }}
     )
-
-
-
-# ------------------------------------------------------------
-# 4) FUNCIÓN PRINCIPAL main()
-# ------------------------------------------------------------
-def main():
-    # ---- 0) Logging y token ----
-    logging.basicConfig(level=logging.INFO)
-    log = logging.getLogger(__name__)
-    TELEGRAM_TOKEN = os.getenv("TELEGRAM_TOKEN")
-
-    # ---- 1) Cargar mapeos y DB ----
-    load_coin_mappings()
-    init_db()
-
-    # ---- 2) Instancia el Bot y limpia webhook ----
-    # Evita warnings de pool en Telegram
-    request = Request(con_pool_size=32)
-    bot = Bot(token=TELEGRAM_TOKEN, request=request)
-
-    info = bot.get_webhook_info()
-    log.info(f"Webhook antes de borrar: url={info.url!r}")
-    bot.delete_webhook(drop_pending_updates=True)
-    log.info("Webhook eliminado. Pasamos a polling.")
-
-    # ---- 3) Crea el Updater usando ese mismo Bot ----
-    updater = Updater(bot=bot, use_context=True)
-    dp = updater.dispatcher
-
-    # ---- 4) Registra tus handlers ----
-    dp.add_handler(CommandHandler("start", start))
-    dp.add_handler(CommandHandler("help", help_handler))
-    dp.add_handler(CommandHandler("precio", precio))
-    dp.add_handler(CommandHandler("alerta_crear", alerta_crear))
-    dp.add_handler(CommandHandler("alerta_listar", alerta_listar))
-    dp.add_handler(CommandHandler("alerta_borrar", alerta_borrar))
-    dp.add_handler(CommandHandler("config_divisa", config_divisa))
-    dp.add_handler(CommandHandler("portafolio", portafolio_handler))
-
-    # ---- 5) Arranca el scheduler ----
-    scheduler = BackgroundScheduler(timezone="UTC")
-    scheduler.add_job(check_price_alerts, "interval", minutes=5)
-    scheduler.add_job(check_variation_alerts, "interval", minutes=5)
-    scheduler.add_job(check_portfolio_variation_alerts, "interval", minutes=5)
-    scheduler.start()
-
-    # ---- 6) Inicia polling ----
-    updater.start_polling()
-    log.info("Bot iniciado en modo polling (webhook eliminado)")
-    updater.idle()
-
 
 # ------------------------------------------------------------
 # 5) JOB DE CHEQUEO PERIÓDICO DE ALERTAS
@@ -1130,6 +996,7 @@ def get_portfolio_total_value(user_id: int) -> float:
             continue
         total += cantidad * precio_actual
 
+
     return total
 def register_portfolio_variation_alert(user_id: int):
     """
@@ -1236,5 +1103,46 @@ def check_variation_alerts():
             cursor2.close()
             conn2.close()
 
+app = Flask(__name__)
+bot = Bot(token=TELEGRAM_TOKEN, request=TGRequest(con_pool_size=32))
+
+dispatcher = Dispatcher(bot=bot, update_queue=None, workers=4, use_context=True)
+# Registrar handlers en dispatcher
+# e.g. dispatcher.add_handler(CommandHandler("start", start))
+
+@app.route(f"/{TELEGRAM_TOKEN}", methods=["POST"])
+def webhook():
+    update = Update.de_json(request.get_json(force=True), bot)
+    dispatcher.process_update(update)
+    return "OK"
+
 if __name__ == "__main__":
-    main()
+    load_coin_mappings()
+    init_db()
+    # Registrar handlers
+    dispatcher.add_handler(CommandHandler("start", start))
+    dispatcher.add_handler(CommandHandler("precio", precio))
+    dispatcher.add_handler(CommandHandler("alerta_crear", alerta_crear))
+    dispatcher.add_handler(CommandHandler("alerta_listar", alerta_listar))
+    dispatcher.add_handler(CommandHandler("alerta_borrar", alerta_borrar))
+    dispatcher.add_handler(CommandHandler("config_divisa", config_divisa))
+    dispatcher.add_handler(CommandHandler("portafolio", portafolio_handler))
+
+    # Scheduler for alerts\   
+    scheduler = BackgroundScheduler(timezone="UTC")
+    scheduler.add_job(lambda: dispatcher.run_async(check_price_alerts), "interval", minutes=5)
+    scheduler.add_job(lambda: dispatcher.run_async(check_variation_alerts), "interval", minutes=5)
+    scheduler.add_job(lambda: dispatcher.run_async(check_portfolio_variation_alerts), "interval", minutes=5)
+    scheduler.start()
+
+    # Set webhook on Telegram side
+    webhook_url = f"https://{APP_URL}/{TELEGRAM_TOKEN}"
+    if not APP_URL:
+        logger.error("❌ PUBLIC_URL no configurada en entorno")
+        sys.exit(1)
+
+    bot.set_webhook(webhook_url)
+    logger.info(f"Webhook establecido: {webhook_url}")
+
+    # Start Flask server
+    app.run(host="0.0.0.0", port=PORT)
