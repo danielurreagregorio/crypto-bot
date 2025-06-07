@@ -577,26 +577,13 @@ def main():
 
     scheduler.start()
 
-       # 1) Recogemos variables
-    PORT       = int(os.environ.get("PORT", "8443"))
-    PUBLIC_URL = os.environ.get("PUBLIC_URL")
-    if not PUBLIC_URL:
-        raise RuntimeError("❌ Debes definir PUBLIC_URL sin puerto, p.ej. https://mi-bot.onrender.com")
+     # 3) Asegúrate de que no hay webhook activo
+    updater.bot.delete_webhook(drop_pending_updates=True)
 
-    # 2) Configuramos el webhook en el dominio (sin :PORT)
-    webhook_url = f"{PUBLIC_URL}/{TELEGRAM_TOKEN}"
-    updater.bot.set_webhook(webhook_url)
-
-    # 3) Arrancamos el servidor HTTP en el puerto interno
-    updater.start_webhook(
-        listen="0.0.0.0",
-        port=PORT,
-        url_path=TELEGRAM_TOKEN
-    )
-
-    log.info(f"Webhook configurado en {webhook_url}", extra={"extra": {}})
+    # 4) Arranca polling (long‐polling)
+    updater.start_polling()
+    log.info("Bot iniciado en modo polling (webhook eliminado)", extra={"extra": {}})
     updater.idle()
-
 
 
 # ------------------------------------------------------------
