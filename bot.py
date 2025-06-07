@@ -1164,6 +1164,7 @@ if __name__ == "__main__":
     scheduler.start()
 
     # Set webhook on Telegram side
+    APP_URL = APP_URL.replace("https://", "").replace("http://", "")
     webhook_url = f"https://{APP_URL}/{TELEGRAM_TOKEN}"
     logger.info(f"Preparando webhook en → {webhook_url}")
     bot.set_webhook(webhook_url)
