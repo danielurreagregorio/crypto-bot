@@ -28,7 +28,7 @@ ELASTICSEARCH_URL = os.getenv("ELASTICSEARCH_URL", "")
 APP_URL = "crypto-bot-ntrg.onrender.com" 
 print(f"DEBUG: APP_URL = '{APP_URL}'")
 
-PORT = int(os.environ.get("PORT", 5000))
+PORT = int(os.environ.get("PORT", 10000))
 
 if not TELEGRAM_TOKEN:
     print("❌ ERROR: TELEGRAM_TOKEN no encontrado en el entorno.", file=sys.stderr)
