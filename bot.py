@@ -1153,9 +1153,11 @@ dispatcher = Dispatcher(bot=bot, update_queue=None, workers=4, use_context=True)
 
 @app.route(f"/{TELEGRAM_TOKEN}", methods=["POST"])
 def webhook():
+    logger.info("¡Llamada recibida en webhook de Telegram!")
     update = Update.de_json(request.get_json(force=True), bot)
     dispatcher.process_update(update)
     return "OK"
+
 
 if __name__ == "__main__":
     load_coin_mappings()
