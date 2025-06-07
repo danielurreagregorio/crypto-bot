@@ -30,6 +30,8 @@ print(f"DEBUG: APP_URL = '{APP_URL}'")
 
 PORT = int(os.environ.get("PORT", 10000))
 
+app = Flask(__name__)
+
 @app.route("/ping", methods=["GET", "POST"])
 def ping():
     print("===> PING RECIBIDO! <===")
