@@ -8,21 +8,30 @@ import psycopg2
 from psycopg2.extras import RealDictCursor
 from telegram import Bot
 
+import os
+from elasticsearch import Elasticsearch
+
 # Lee la variable de entorno
 disable_es = os.getenv("DISABLE_ES", "false").lower() in ("1", "true", "yes")
 
-if not disable_es:
+if disable_es:
+    es = None
+    print("Elasticsearch desactivado (DISABLE_ES=true)")
+else:
     ES_URL = os.getenv("ELASTICSEARCH_URL")
     if not ES_URL:
-        raise RuntimeError("ES no configurado: define ELASTICSEARCH_URL o activa DISABLE_ES")
-    es = Elasticsearch(
-        [ES_URL],
-        max_retries=3,
-        retry_on_timeout=True,
-        connection_pool_kw={'maxsize': 20}
-    )
-else:
-    es = None
+        # En lugar de RuntimeError, mejor caer en modo sin ES
+        es = None
+        print("No hay ES_URL configurada; Elasticsearch desactivado")
+    else:
+        es = Elasticsearch(
+            [ES_URL],
+            max_retries=3,
+            retry_on_timeout=True,
+            connection_pool_kw={'maxsize': 20}
+        )
+        print(f"Conectado a Elasticsearch en {ES_URL}")
+
 
 # Leer la URL de conexión
 DATABASE_URL = os.getenv("DATABASE_URL")
