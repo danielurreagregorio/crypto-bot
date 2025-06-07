@@ -265,9 +265,6 @@ def get_currency(user_id: int) -> str:
 # 2) CARGAR TOKEN y CONFIGURAR LOGGERS
 # ------------------------------------------------------------
 
-
-import os
-
 TELEGRAM_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
 if not TELEGRAM_TOKEN:
     raise RuntimeError("❌ Debes definir la variable de entorno TELEGRAM_BOT_TOKEN")
