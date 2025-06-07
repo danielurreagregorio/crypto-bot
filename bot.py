@@ -14,20 +14,50 @@ dispatcher = Dispatcher(bot, None, workers=1, use_context=True)
 def start(update, context):
     update.message.reply_text("¡Hola! El bot funciona correctamente 😊\nUsa /precio <cripto> para consultar un precio.")
 
+import requests
+
+# Diccionario de alias (puedes ampliarlo)
+COIN_ALIASES = {
+    "btc": "bitcoin",
+    "bitcoin": "bitcoin",
+    "eth": "ethereum",
+    "ethereum": "ethereum",
+    "doge": "dogecoin",
+    "dogecoin": "dogecoin",
+    "ada": "cardano",
+    "cardano": "cardano",
+    "sol": "solana",
+    "solana": "solana",
+    "xrp": "ripple",
+    "ripple": "ripple"
+}
+
 def precio(update, context):
     if not context.args:
-        update.message.reply_text("Uso: /precio <criptomoneda>\nEjemplo: /precio bitcoin")
+        update.message.reply_text(
+            "Uso: /precio <criptomoneda>\nEjemplo: /precio bitcoin o /precio btc"
+        )
         return
 
-    coin = context.args[0].lower()
-    url = f"https://api.coingecko.com/api/v3/simple/price?ids={coin}&vs_currencies=eur"
+    user_input = context.args[0].lower()
+    coin_id = COIN_ALIASES.get(user_input, user_input)  # Usa alias o lo que haya puesto
+
+    url = f"https://api.coingecko.com/api/v3/simple/price?ids={coin_id}&vs_currencies=eur"
     r = requests.get(url)
-    if r.status_code != 200 or coin not in r.json():
-        update.message.reply_text("Criptomoneda no encontrada.")
-        return
+    data = r.json()
+    # Responde con el precio si existe
+    if coin_id in data and "eur" in data[coin_id]:
+        price = data[coin_id]["eur"]
+        update.message.reply_text(f"💶 Precio de {coin_id.title()}: {price} EUR")
+    else:
+        ejemplos = ", ".join(list(COIN_ALIASES.keys())[:5])
+        update.message.reply_text(
+            f"❌ Criptomoneda no encontrada: '{user_input}'\n"
+            f"Ejemplos válidos: {ejemplos}\n"
+            f"Puedes ver todos los IDs soportados aquí:\n"
+            "https://api.coingecko.com/api/v3/coins/list"
+        )
 
-    price = r.json()[coin]['eur']
-    update.message.reply_text(f"El precio de {coin} es {price} EUR")
 
 dispatcher.add_handler(CommandHandler("start", start))
 dispatcher.add_handler(CommandHandler("precio", precio))
