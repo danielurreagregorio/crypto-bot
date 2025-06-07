@@ -21,7 +21,7 @@ load_dotenv()
 TELEGRAM_TOKEN = os.getenv("TELEGRAM_TOKEN")
 DATABASE_URL = os.getenv("DATABASE_URL")
 ELASTICSEARCH_URL = os.getenv("ELASTICSEARCH_URL", "")
-APP_URL = os.getenv("PUBLIC_URL")  # Provided by Render
+APP_URL = os.getenv("RENDER_EXTERNAL_URL")
 PORT = int(os.environ.get("PORT", 5000))
 
 if not TELEGRAM_TOKEN:
@@ -1137,11 +1137,9 @@ if __name__ == "__main__":
 
     # Set webhook on Telegram side
     webhook_url = f"https://{APP_URL}/{TELEGRAM_TOKEN}"
-    if not APP_URL:
-        logger.error("❌ PUBLIC_URL no configurada en entorno")
-        sys.exit(1)
-
+    logger.info(f"Preparando webhook en → {webhook_url}")
     bot.set_webhook(webhook_url)
+
     logger.info(f"Webhook establecido: {webhook_url}")
 
     # Start Flask server
