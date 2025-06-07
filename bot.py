@@ -22,7 +22,7 @@ load_dotenv()
 TELEGRAM_TOKEN = os.getenv("TELEGRAM_TOKEN")
 DATABASE_URL = os.getenv("DATABASE_URL")
 ELASTICSEARCH_URL = os.getenv("ELASTICSEARCH_URL", "")
-APP_URL = os.getenv("RENDER_EXTERNAL_URL")
+APP_URL = os.getenv("RENDER_EXTERNAL_URL", "crypto-bot-ntrg.onrender.com")
 PORT = int(os.environ.get("PORT", 5000))
 
 if not TELEGRAM_TOKEN:
