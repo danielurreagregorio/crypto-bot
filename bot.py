@@ -577,24 +577,24 @@ def main():
 
     scheduler.start()
 
-    import os
-    PORT = int(os.environ.get("PORT", "10000"))
+       # 1) Recogemos variables
+    PORT       = int(os.environ.get("PORT", "10000"))
     PUBLIC_URL = os.environ.get("PUBLIC_URL")
     if not PUBLIC_URL:
-        raise RuntimeError("❌ Debes definir PUBLIC_URL como la URL de tu Web Service")
+        raise RuntimeError("❌ Debes definir PUBLIC_URL sin puerto, p.ej. https://mi-bot.onrender.com")
 
+    # 2) Configuramos el webhook en el dominio (sin :PORT)
     webhook_url = f"{PUBLIC_URL}/{TELEGRAM_TOKEN}"
-    # Le decimos a Telegram dónde enviar los updates
     updater.bot.set_webhook(webhook_url)
 
-    # Arrancamos el servidor HTTP para recibir Webhooks
+    # 3) Arrancamos el servidor HTTP en el puerto interno
     updater.start_webhook(
-        listen="0.0.0.0",       # Todas las interfaces
-        port=PORT,              # El puerto que Render expone
-        url_path=TELEGRAM_TOKEN # Path = token para seguridad
+        listen="0.0.0.0",
+        port=PORT,
+        url_path=TELEGRAM_TOKEN
     )
 
-    log.info(f"Webhook iniciado en {webhook_url}", extra={"extra": {}})
+    log.info(f"Webhook configurado en {webhook_url}", extra={"extra": {}})
     updater.idle()
 
 
