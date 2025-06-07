@@ -22,8 +22,6 @@ import json
 
 # Load environment
 load_dotenv()
-import os
-print("ENTORNO:", dict(os.environ))
 TELEGRAM_TOKEN = os.getenv("TELEGRAM_TOKEN")
 DATABASE_URL = os.getenv("DATABASE_URL")
 ELASTICSEARCH_URL = os.getenv("ELASTICSEARCH_URL", "")
