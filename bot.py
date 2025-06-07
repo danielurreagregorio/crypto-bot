@@ -231,7 +231,7 @@ def add_alert(user_id: int, crypto_id: str, condition: str, threshold: float):
     cursor = conn.cursor()
     cursor.execute("""
         INSERT INTO price_alerts (user_id, crypto_id, condition, threshold, active, created_at)
-        VALUES (?, ?, ?, ?, 1, ?)
+        VALUES (%s, %s, %s, %s, 1, %s)
     """, (user_id, crypto_id, condition, threshold, datetime.utcnow()))
     conn.commit()
     cursor.close()
@@ -239,21 +239,24 @@ def add_alert(user_id: int, crypto_id: str, condition: str, threshold: float):
 
 def list_alerts(user_id: int):
     conn = get_conn()
-    cursor = conn.cursor()
-    cursor.execute("""
+    cur = conn.cursor()
+    cur.execute(
+        """
         SELECT id, crypto_id, condition, threshold, created_at
-        FROM price_alerts
-        WHERE user_id = ? AND active = 1
-    """, (user_id,))
-    rows = cursor.fetchall()
-    cursor.close()
+          FROM price_alerts
+         WHERE user_id = %s AND active = TRUE
+        """,
+        (user_id,)
+    )
+    rows = cur.fetchall()
+    cur.close()
     conn.close()
     return rows
 
 def deactivate_alert(alert_id: int):
     conn = get_conn()
     cursor = conn.cursor()
-    cursor.execute("UPDATE price_alerts SET active = 0 WHERE id = ?", (alert_id,))
+    cursor.execute("UPDATE price_alerts SET active = 0 WHERE id = %s", (alert_id,))
     conn.commit()
     cursor.close()
     conn.close()
@@ -263,7 +266,7 @@ def set_currency(user_id: int, currency: str):
     cursor = conn.cursor()
     cursor.execute("""
         INSERT INTO user_prefs (user_id, currency)
-        VALUES (?, ?)
+        VALUES (%s, %s)
         ON CONFLICT(user_id) DO UPDATE SET currency = excluded.currency
     """, (user_id, currency.lower()))
     conn.commit()
@@ -272,12 +275,16 @@ def set_currency(user_id: int, currency: str):
 
 def get_currency(user_id: int) -> str:
     conn = get_conn()
-    cursor = conn.cursor()
-    cursor.execute("SELECT currency FROM user_prefs WHERE user_id = ?", (user_id,))
-    row = cursor.fetchone()
-    cursor.close()
+    cur = conn.cursor()
+    cur.execute(
+        "SELECT currency FROM user_prefs WHERE user_id = %s",
+        (user_id,)
+    )
+    row = cur.fetchone()
+    cur.close()
     conn.close()
     return row[0] if row else "usd"
+
 
 
 # ------------------------------------------------------------
@@ -642,7 +649,7 @@ def portfolio_add(user_id: int, crypto_id: str, cantidad: float, precio_compra: 
     cursor = conn.cursor()
     cursor.execute("""
         INSERT INTO portfolio (user_id, crypto_id, cantidad, precio_compra, fecha)
-        VALUES (?, ?, ?, ?, ?)
+        VALUES (%s, %s, %s, %s, %s)
     """, (user_id, crypto_id, cantidad, precio_compra, datetime.utcnow()))
     conn.commit()
     cursor.close()
@@ -653,24 +660,32 @@ def portfolio_remove(user_id: int, crypto_id: str):
     cursor = conn.cursor()
     cursor.execute("""
         DELETE FROM portfolio
-        WHERE user_id = ? AND crypto_id = ?
+        WHERE user_id = %s AND crypto_id = %s
     """, (user_id, crypto_id))
     conn.commit()
     cursor.close()
     conn.close()
 
 def portfolio_get_all(user_id: int):
+    """
+    Devuelve una lista de tuplas (crypto_id, cantidad, precio_compra, fecha)
+    para todas las posiciones de user_id en PostgreSQL.
+    """
     conn = get_conn()
-    cursor = conn.cursor()
-    cursor.execute("""
+    cur = conn.cursor()
+    cur.execute(
+        """
         SELECT crypto_id, cantidad, precio_compra, fecha
-        FROM portfolio
-        WHERE user_id = ?
-    """, (user_id,))
-    rows = cursor.fetchall()
-    cursor.close()
+          FROM portfolio
+         WHERE user_id = %s
+        """,
+        (user_id,)
+    )
+    rows = cur.fetchall()
+    cur.close()
     conn.close()
     return rows
+
 def register_variation_alert(user_id: int, crypto_id: str, base_price: float):
     """
     Inserta en variation_alerts una fila (user_id, crypto_id, base_price, porcentaje=5.0)
@@ -682,7 +697,7 @@ def register_variation_alert(user_id: int, crypto_id: str, base_price: float):
     # Verificar si ya existe una alerta activa para ese user_id y crypto_id
     cursor.execute("""
         SELECT id FROM variation_alerts
-        WHERE user_id = ? AND crypto_id = ? AND active = 1
+        WHERE user_id = %s AND crypto_id = %s AND active = 1
     """, (user_id, crypto_id))
     fila = cursor.fetchone()
 
@@ -696,7 +711,7 @@ def register_variation_alert(user_id: int, crypto_id: str, base_price: float):
     cursor.execute("""
         INSERT OR REPLACE INTO variation_alerts
         (user_id, crypto_id, base_price, porcentaje, active, created_at)
-        VALUES (?, ?, ?, ?, 1, ?)
+        VALUES (%s, %s, %s, %s, 1, %s)
     """, (user_id, crypto_id, base_price, 5.0, creado))
 
     conn.commit()
@@ -1039,7 +1054,7 @@ def check_portfolio_variation_alerts():
         cursor2.execute("""
             UPDATE portfolio_variation_alerts
             SET active = 0
-            WHERE id = ?
+            WHERE id = %s
         """, (alert_id,))
         conn2.commit()
         cursor2.close()
@@ -1097,7 +1112,7 @@ def register_portfolio_variation_alert(user_id: int):
     cursor.execute("""
         INSERT INTO portfolio_variation_alerts
         (user_id, base_value, porcentaje, active, created_at)
-        VALUES (?, ?, ?, 1, ?)
+        VALUES (%s, %s, %s, 1, %s)
         ON CONFLICT(user_id) DO UPDATE
           SET base_value = excluded.base_value,
               porcentaje = excluded.porcentaje,
@@ -1177,7 +1192,7 @@ def check_variation_alerts():
             cursor2.execute("""
                 UPDATE variation_alerts
                 SET active = 0
-                WHERE id = ?
+                WHERE id = %s
             """, (alert_id,))
             conn2.commit()
             cursor2.close()
