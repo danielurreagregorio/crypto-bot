@@ -549,10 +549,22 @@ def main():
     # 2) Inicializar base de datos (crea variation_alerts)
     init_db()
 
-    # 3) Configurar bot de Telegram
-    updater = Updater(TELEGRAM_TOKEN, use_context=True)
-    updater.bot.delete_webhook(drop_pending_updates=True)
+        # 0) Instancia directa de Bot para ejecutar sólo delete/get_webhook_info
+    bot = Bot(token=TELEGRAM_TOKEN)
+
+    # 0.1) Consulta estado actual
+    info = bot.get_webhook_info()
+    logging.info(f"Webhook antes de borrar: {info}")
+
+    # 0.2) Elimínalo de verdad
+    removed = bot.delete_webhook(drop_pending_updates=True)
+    logging.info(f"Webhook borrado correctamente: {removed}")
+
+    # — ahora sigues con tu Updater —
+    updater = Updater(bot=bot, use_context=True)
     dp = updater.dispatcher
+
+
 
     # 4) Registrar handlers
     dp.add_handler(CommandHandler("start", start))
@@ -577,7 +589,19 @@ def main():
     scheduler.start()
 
     # 4) Arranca polling (long‐polling)
+    logging.basicConfig(level=logging.INFO)
+    log = logging.getLogger(__name__)
+
+    log.info("Arrancando comprobación de webhook…")
+    info = bot.get_webhook_info()
+    log.info(f"get_webhook_info(): {info.url}, pending={info.has_custom_certificate}")
+
+    log.info("Borrando webhook…")
+    bot.delete_webhook(drop_pending_updates=True)
+
+    log.info("Inicializo Updater y start_polling()")
     updater.start_polling()
+
     log.info("Bot iniciado en modo polling (webhook eliminado)", extra={"extra": {}})
     updater.idle()
 
