@@ -264,12 +264,18 @@ def get_currency(user_id: int) -> str:
 # ------------------------------------------------------------
 # 2) CARGAR TOKEN y CONFIGURAR LOGGERS
 # ------------------------------------------------------------
-with open("config.json", "r", encoding="utf-8") as cfg_file:
-    config = json.load(cfg_file)
 
-TELEGRAM_TOKEN = config.get("TELEGRAM_BOT_TOKEN")
+
+import os
+
+TELEGRAM_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
 if not TELEGRAM_TOKEN:
-    raise RuntimeError("Debes tener TELEGRAM_BOT_TOKEN en config.json")
+    raise RuntimeError("❌ Debes definir la variable de entorno TELEGRAM_BOT_TOKEN")
+
+# Elasticsearch (opcional)
+es_host = os.getenv("ELASTICSEARCH_HOST", "http://localhost:9200")
+es_user = os.getenv("ELASTIC_USER", "elastic")
+es_pass = os.getenv("ELASTIC_PASSWORD", "")
 
 print("Usando Telegram token:", TELEGRAM_TOKEN[:10] + "…")
 
@@ -280,10 +286,6 @@ console_handler = logging.StreamHandler()
 console_formatter = logging.Formatter("%(asctime)s %(levelname)s:%(name)s:%(message)s")
 console_handler.setFormatter(console_formatter)
 logger.addHandler(console_handler)
-
-es_host = config.get("ELASTICSEARCH_HOST", "http://localhost:9200")
-es_user = config.get("ELASTIC_USER", "elastic")
-es_pass = config.get("ELASTIC_PASSWORD", "")
 
 es_client = Elasticsearch(
     [es_host],
