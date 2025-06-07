@@ -30,6 +30,13 @@ print(f"DEBUG: APP_URL = '{APP_URL}'")
 
 PORT = int(os.environ.get("PORT", 10000))
 
+@app.route("/ping", methods=["GET", "POST"])
+def ping():
+    print("===> PING RECIBIDO! <===")
+    import sys; sys.stdout.flush()
+    return "pong"
+
+
 if not TELEGRAM_TOKEN:
     print("❌ ERROR: TELEGRAM_TOKEN no encontrado en el entorno.", file=sys.stderr)
     sys.exit(1)
