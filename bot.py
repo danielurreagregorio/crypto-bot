@@ -2,44 +2,49 @@ import os
 from flask import Flask, request
 from telegram import Bot, Update
 from telegram.ext import Dispatcher, CommandHandler
+import requests
 
-# Configura el token de Telegram desde variable de entorno
 TELEGRAM_TOKEN = os.environ["TELEGRAM_TOKEN"]
 
-# Crea la app Flask
 app = Flask(__name__)
 
-# Crea el bot de Telegram y Dispatcher
 bot = Bot(token=TELEGRAM_TOKEN)
 dispatcher = Dispatcher(bot, None, workers=1, use_context=True)
 
-# Handler del comando /start
 def start(update, context):
-    update.message.reply_text("¡Hola! El bot funciona correctamente 😊")
+    update.message.reply_text("¡Hola! El bot funciona correctamente 😊\nUsa /precio <cripto> para consultar un precio.")
 
-# Añade el handler al dispatcher
+def precio(update, context):
+    if not context.args:
+        update.message.reply_text("Uso: /precio <criptomoneda>\nEjemplo: /precio bitcoin")
+        return
+
+    coin = context.args[0].lower()
+    url = f"https://api.coingecko.com/api/v3/simple/price?ids={coin}&vs_currencies=eur"
+    r = requests.get(url)
+    if r.status_code != 200 or coin not in r.json():
+        update.message.reply_text("Criptomoneda no encontrada.")
+        return
+
+    price = r.json()[coin]['eur']
+    update.message.reply_text(f"El precio de {coin} es {price} EUR")
+
 dispatcher.add_handler(CommandHandler("start", start))
+dispatcher.add_handler(CommandHandler("precio", precio))
 
-# Endpoint del webhook (debe coincidir EXACTAMENTE con el webhook de Telegram)
 @app.route(f"/{TELEGRAM_TOKEN}", methods=["POST"])
 def webhook():
     update = Update.de_json(request.get_json(force=True), bot)
     dispatcher.process_update(update)
     return "ok"
 
-# Un endpoint para pruebas básicas (opcional)
 @app.route("/")
 def home():
     return "Bot de Telegram activo"
 
 if __name__ == "__main__":
-    # Puerto que Render expone automáticamente
     PORT = int(os.environ.get("PORT", 10000))
-    # Seteamos el webhook al arrancar
-    HOSTNAME = os.environ.get("RENDER_EXTERNAL_HOSTNAME")
-    if not HOSTNAME:
-        # En local, puedes definirlo tú, pero en Render se autoasigna
-        HOSTNAME = "TU_HOSTNAME_RENDER"
+    HOSTNAME = os.environ.get("RENDER_EXTERNAL_HOSTNAME", "TU_HOSTNAME_RENDER")
     webhook_url = f"https://{HOSTNAME}/{TELEGRAM_TOKEN}"
     bot.set_webhook(webhook_url)
     print(f"Webhook establecido en: {webhook_url}")
