@@ -578,7 +578,7 @@ def main():
     scheduler.start()
 
        # 1) Recogemos variables
-    PORT       = int(os.environ.get("PORT", "10000"))
+    PORT       = int(os.environ.get("PORT", "8443"))
     PUBLIC_URL = os.environ.get("PUBLIC_URL")
     if not PUBLIC_URL:
         raise RuntimeError("❌ Debes definir PUBLIC_URL sin puerto, p.ej. https://mi-bot.onrender.com")
