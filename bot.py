@@ -551,8 +551,7 @@ def main():
 
     # 3) Configurar bot de Telegram
     updater = Updater(TELEGRAM_TOKEN, use_context=True)
-    global bot
-    bot = updater.bot
+    updater.bot.delete_webhook(drop_pending_updates=True)
     dp = updater.dispatcher
 
     # 4) Registrar handlers
@@ -576,9 +575,6 @@ def main():
     scheduler.add_job(check_portfolio_variation_alerts, "interval", minutes=5)
 
     scheduler.start()
-
-     # 3) Asegúrate de que no hay webhook activo
-    updater.bot.delete_webhook(drop_pending_updates=True)
 
     # 4) Arranca polling (long‐polling)
     updater.start_polling()
