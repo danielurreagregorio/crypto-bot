@@ -162,67 +162,68 @@ def init_db():
     conn = get_conn()
     cur = conn.cursor()
 
-    # —–> TABLA DE ALERTAS DE UMBRALES (existente)
+    # Alertas de precio
     cur.execute("""
-        CREATE TABLE IF NOT EXISTS price_alerts (
-          id           INTEGER PRIMARY KEY AUTOINCREMENT,
-          user_id      INTEGER NOT NULL,
-          crypto_id    TEXT    NOT NULL,
-          condition    TEXT    NOT NULL,
-          threshold    REAL    NOT NULL,
-          recurrente   INTEGER NOT NULL DEFAULT 0,
-          intervalo    INTEGER NOT NULL DEFAULT 5,
-          active       INTEGER NOT NULL,
-          created_at   TEXT    NOT NULL
-        )
+    CREATE TABLE IF NOT EXISTS price_alerts (
+      id           SERIAL PRIMARY KEY,
+      user_id      BIGINT    NOT NULL,
+      crypto_id    TEXT      NOT NULL,
+      condition    TEXT      NOT NULL,
+      threshold    DOUBLE PRECISION NOT NULL,
+      active       BOOLEAN   NOT NULL DEFAULT TRUE,
+      created_at   TIMESTAMPTZ NOT NULL
+    )
     """)
 
-    # —–> TABLA DE PREFERENCIAS (existente)
+    # Preferencias de divisa
     cur.execute("""
-        CREATE TABLE IF NOT EXISTS user_prefs (
-          user_id  INTEGER PRIMARY KEY,
-          currency TEXT    NOT NULL
-        )
+    CREATE TABLE IF NOT EXISTS user_prefs (
+      user_id  BIGINT PRIMARY KEY,
+      currency TEXT   NOT NULL
+    )
     """)
 
-    # —–> TABLA DE PORTAFOLIO (existente)
+    # Portfolio
     cur.execute("""
-        CREATE TABLE IF NOT EXISTS portfolio (
-          id            INTEGER PRIMARY KEY AUTOINCREMENT,
-          user_id       INTEGER NOT NULL,
-          crypto_id     TEXT    NOT NULL,
-          cantidad      REAL    NOT NULL,
-          precio_compra REAL    NOT NULL,
-          fecha         TEXT    NOT NULL
-        )
+    CREATE TABLE IF NOT EXISTS portfolio (
+      id            SERIAL PRIMARY KEY,
+      user_id       BIGINT NOT NULL,
+      crypto_id     TEXT   NOT NULL,
+      cantidad      DOUBLE PRECISION NOT NULL,
+      precio_compra DOUBLE PRECISION NOT NULL,
+      fecha         TIMESTAMPTZ NOT NULL
+    )
     """)
 
-    # —–> NUEVA TABLA PARA ALERTAS DE VARIACIÓN PORCENTUAL
+    # Alertas de variación por cripto
     cur.execute("""
-        CREATE TABLE IF NOT EXISTS variation_alerts (
-          id            INTEGER PRIMARY KEY AUTOINCREMENT,
-          user_id       INTEGER NOT NULL,
-          crypto_id     TEXT    NOT NULL,
-          base_price    REAL    NOT NULL,
-          porcentaje    REAL    NOT NULL,          -- 5.0 para 5%
-          active        INTEGER NOT NULL,          -- 1=activa, 0=desactivada
-          created_at    TEXT    NOT NULL,
-          UNIQUE(user_id, crypto_id)               -- Evita duplicados para cada par
-        )
+    CREATE TABLE IF NOT EXISTS variation_alerts (
+      id           SERIAL PRIMARY KEY,
+      user_id      BIGINT NOT NULL,
+      crypto_id    TEXT   NOT NULL,
+      base_price   DOUBLE PRECISION NOT NULL,
+      porcentaje   DOUBLE PRECISION NOT NULL,
+      active       BOOLEAN NOT NULL DEFAULT TRUE,
+      created_at   TIMESTAMPTZ NOT NULL
+    )
     """)
+
+    # Alertas de variación del portafolio
     cur.execute("""
-        CREATE TABLE IF NOT EXISTS portfolio_variation_alerts (
-          id            INTEGER PRIMARY KEY AUTOINCREMENT,
-          user_id       INTEGER NOT NULL UNIQUE,   -- una alerta activa por usuario
-          base_value    REAL    NOT NULL,          -- valor total “base” del portafolio
-          porcentaje    REAL    NOT NULL,          -- 5.0 para 5%
-          active        INTEGER NOT NULL,          -- 1=activa, 0=desactivada
-          created_at    TEXT    NOT NULL
-        )
+    CREATE TABLE IF NOT EXISTS portfolio_variation_alerts (
+      id            SERIAL PRIMARY KEY,
+      user_id       BIGINT UNIQUE NOT NULL,
+      base_value    DOUBLE PRECISION NOT NULL,
+      porcentaje    DOUBLE PRECISION NOT NULL,
+      active        BOOLEAN NOT NULL DEFAULT TRUE,
+      created_at    TIMESTAMPTZ NOT NULL
+    )
     """)
+
     conn.commit()
     cur.close()
     conn.close()
+
 
 
 def add_alert(user_id: int, crypto_id: str, condition: str, threshold: float):
